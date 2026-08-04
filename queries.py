@@ -18,7 +18,12 @@ from sqlalchemy import text
 # scanning the table is checking "how far did tonight get", which only reads
 # correctly in run order. Applied in app.py after the fetch, since DISTINCT ON
 # forces its own ORDER BY here.
-STAGE_ORDER = ["ingest", "dedupe", "staleness", "prefilter"]
+#
+# Must list EVERY stage the pipeline executes. A stage missing from this list
+# still renders (app.py sorts unknown stages to the end via the len() fallback),
+# but it silently loses its "never run" tile — which is precisely the signal that
+# matters for a stage that has never once been recorded.
+STAGE_ORDER = ["ingest", "dedupe", "staleness", "prefilter", "detail_check"]
 
 # DISTINCT ON (stage) + ORDER BY stage, started_at DESC = the newest row per
 # stage. Deliberately NOT filtered to one run_id: when a run dies partway (a

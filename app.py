@@ -127,9 +127,10 @@ if runs.empty:
 else:
     # A stage that has NEVER been recorded is absent from this table entirely,
     # which would silently render as a missing tile — indistinguishable from a
-    # stage that simply isn't part of the pipeline. A stage can be in the
-    # pipeline's sequence and still have no pipeline_runs row at all, so it
-    # is given an explicit "never run" tile rather than being dropped.
+    # stage that simply isn't part of the pipeline. Any stage in STAGE_ORDER
+    # with no pipeline_runs row is therefore given an explicit "never run" tile
+    # rather than being dropped — a newly added stage sits in exactly that state
+    # until the first run that executes it.
     recorded = set(runs["stage"])
     missing = [s for s in STAGE_ORDER if s not in recorded]
     if missing:

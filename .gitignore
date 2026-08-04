@@ -1,0 +1,15 @@
+# Real Streamlit secrets — holds the live database connection string.
+# Only the placeholder .example is tracked. The negation must follow the
+# ignore, or git never reconsiders the file.
+.streamlit/secrets.toml
+!.streamlit/secrets.toml.example
+
+# Environment files, in every form they show up in
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.pyc
+.venv/
+venv/

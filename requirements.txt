@@ -1,0 +1,8 @@
+# Everything the dashboard needs and nothing else: streamlit + pandas over a
+# SQLAlchemy/psycopg2 connection. Keeping this minimal matters on Streamlit
+# Community Cloud, where a heavier dependency set is a slow build against the
+# free tier's resource ceiling.
+streamlit>=1.35
+pandas>=2.2
+sqlalchemy>=2.0
+psycopg2-binary>=2.9

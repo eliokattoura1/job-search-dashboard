@@ -185,6 +185,18 @@ with tab_funnel:
             int(f["applications_submitted"]) if pd.notna(f["applications_submitted"]) else 0
         )
 
+        # Expected, not a warning: prefilter re-evaluates every non-duplicate
+        # posting each run, not just the ones ingested that night, so this
+        # can legitimately read higher than Ingested. Reusing .jsd-count-note
+        # (muted token, small type) rather than a new class — same "small
+        # helper text" role the Review Queue tab already uses it for.
+        st.markdown(
+            '<p class="jsd-count-note">Prefiltered includes postings '
+            're-evaluated from prior nights, not just last night’s new '
+            'ingest — so this number can be higher than Ingested.</p>',
+            unsafe_allow_html=True,
+        )
+
         # Qualified/Applications Submitted show "Coming soon" rather than a
         # bare 0 when nothing has moved through that stage yet — a 0 here
         # would read as "the search tried and found nothing", when the truer

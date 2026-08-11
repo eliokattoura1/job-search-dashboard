@@ -126,6 +126,128 @@ CORPUS_TOTALS_SQL = text("""
 """)
 
 
+# ---------------------------------------------------------------------------
+# Stakeholder-facing statements (candidate-facing tabs, added 2026-08-11).
+#
+# These share the same DB/read-only posture as everything above but answer a
+# different question than the technical tabs do — "what has the search found
+# so far", not "did last night's run work". Two conventions specific to this
+# section:
+#
+#   * "Opportunities" means qualified_opportunities rows with
+#     first_pass_result IN ('pass', 'ambiguous_forwarded') — i.e. everything
+#     NOT excluded, the same definition FORWARD_QUEUE_SQL above already uses
+#     for its two queues. 'excluded' rows are not opportunities.
+#   * Source and reject-reason values come straight out of the database
+#     (connector/table names, internal reason codes) and are relabeled for
+#     display via SOURCE_DISPLAY_NAMES / REASON_LABELS below, in app.py, right
+#     before rendering — never in SQL, so the underlying value stays the join
+#     key and the label stays purely cosmetic.
+# ---------------------------------------------------------------------------
+
+# raw_postings.source_id -> sources.name -> a name a candidate would recognize.
+# Deliberately a lookup with an explicit fallback in app.py (title-cased raw
+# name) rather than a database column: these are cosmetic and change if a
+# clearer label is wanted later, which should never require a migration.
+SOURCE_DISPLAY_NAMES = {
+    "greenhouse": "Greenhouse",
+    "lever": "Lever",
+    "ashby": "Ashby",
+    "workable": "Workable",
+    "remoteok": "RemoteOK",
+    "remotive": "Remotive",
+    "himalayas": "Himalayas",
+    "weworkremotely": "We Work Remotely",
+    "workingnomads": "Working Nomads",
+    "eures": "EURES",
+    "landingjobs": "Landing.jobs",
+    "mycareersfuture": "MyCareersFuture",
+    "arbeitnow": "Arbeitnow",
+    "jobtechdev": "JobTech Dev",
+}
+
+# prefilter's fixed reject_reasons vocabulary (pipeline/prefilter.py
+# VALID_REASON_CODES), relabeled into plain language for display. Every code
+# the pipeline can currently produce is listed so a new/unrecognized code
+# fails visibly (falls back to the raw code in app.py) rather than silently
+# rendering blank.
+REASON_LABELS = {
+    "citizenship_or_residency_required": "Requires citizenship/residency the candidate doesn't hold",
+    "local_work_permit_required": "Requires a local work permit",
+    "work_authorization_mismatch": "Location not covered by current work authorization",
+    "onsite_or_hybrid_required": "Requires on-site attendance",
+    "timezone_incompatible": "Timezone doesn't overlap enough",
+    "salary_below_minimum": "Salary below minimum",
+    "role_not_in_taxonomy": "Not a targeted role type",
+    "missing_technical_skills": "Missing required technical skills",
+    "seniority_mismatch": "Seniority level doesn't match",
+    "portfolio_mismatch": "Portfolio doesn't match what's required",
+    "deadline_passed": "Application deadline has passed",
+    "low_company_credibility": "Company didn't meet credibility criteria",
+    "engagement_type_mismatch": "Employment type doesn't match (e.g. contract vs. full-time)",
+}
+
+# One row: the four funnel stages. Ingested/Prefiltered come from the latest
+# recorded run of each stage (mirrors LATEST_RUNS_SQL's own "newest row per
+# stage" logic, just narrowed to the one number each stage is known for).
+# Qualified/Applications Submitted read directly off their tables rather than
+# off a pipeline_runs stage, because no stage populates them yet — see the
+# Funnel tab in app.py, which shows "Coming soon" instead of a bare 0 when a
+# stage genuinely has no data behind it yet, rather than implying that stage
+# ran and found nothing.
+FUNNEL_SQL = text("""
+    SELECT
+        (SELECT rows_fetched FROM pipeline_runs
+          WHERE stage = 'ingest' ORDER BY started_at DESC LIMIT 1)    AS ingested,
+        (SELECT rows_processed FROM pipeline_runs
+          WHERE stage = 'prefilter' ORDER BY started_at DESC LIMIT 1) AS prefiltered,
+        (SELECT count(*) FROM qualified_opportunities
+          WHERE deep_review_score IS NOT NULL)                       AS qualified,
+        (SELECT count(*) FROM applications
+          WHERE submitted_at IS NOT NULL)                             AS applications_submitted
+""")
+
+OPPORTUNITIES_BY_SOURCE_SQL = text("""
+    SELECT s.name AS source, count(*) AS n
+    FROM qualified_opportunities q
+    JOIN raw_postings r ON r.id = q.raw_posting_id
+    JOIN sources s      ON s.id = r.source_id
+    WHERE q.first_pass_result IN ('pass', 'ambiguous_forwarded')
+    GROUP BY s.name
+    ORDER BY n DESC
+""")
+
+# Distinct location strings for opportunities only, grouped in SQL and bucketed
+# into a region in Python — same division of labor as the technical tab's
+# LOCATION_COUNTS_SQL above (region vocabulary lives in regions.py, not here
+# or in a DB column). Unlike that query this is scoped to opportunities, not
+# every raw posting, since the region breakdown here is answering "where are
+# the opportunities", not "where does the whole corpus sit".
+OPPORTUNITIES_BY_LOCATION_SQL = text("""
+    SELECT r.location, count(*) AS n
+    FROM qualified_opportunities q
+    JOIN raw_postings r ON r.id = q.raw_posting_id
+    WHERE q.first_pass_result IN ('pass', 'ambiguous_forwarded')
+    GROUP BY r.location
+""")
+
+# Minimal columns only — company/title/source/date found. No posting id, no
+# gate/verdict internals, no salary or URL: this is the clean stakeholder
+# view, not the technical ambiguous queue FORWARD_QUEUE_SQL already covers.
+REVIEW_QUEUE_SQL = text("""
+    SELECT COALESCE(c.name, r.company_name) AS company,
+           r.title                          AS title,
+           s.name                           AS source,
+           r.first_seen_at                  AS date_found
+    FROM qualified_opportunities q
+    JOIN raw_postings r   ON r.id = q.raw_posting_id
+    JOIN sources s        ON s.id = r.source_id
+    LEFT JOIN companies c ON c.id = r.company_id
+    WHERE q.first_pass_result = 'ambiguous_forwarded'
+    ORDER BY r.first_seen_at DESC
+""")
+
+
 # Name -> statement. app.py's cached loader keys on the NAME, not the statement
 # object: a SQLAlchemy TextClause is unhashable, so passing it as a cache
 # argument forces Streamlit to skip hashing it (the `_`-prefix convention) --
@@ -141,4 +263,8 @@ STATEMENTS = {
     "forward_queue":  FORWARD_QUEUE_SQL,
     "daily_trend":    DAILY_TREND_SQL,
     "corpus_totals":  CORPUS_TOTALS_SQL,
+    "funnel":                    FUNNEL_SQL,
+    "opportunities_by_source":   OPPORTUNITIES_BY_SOURCE_SQL,
+    "opportunities_by_location": OPPORTUNITIES_BY_LOCATION_SQL,
+    "review_queue":              REVIEW_QUEUE_SQL,
 }

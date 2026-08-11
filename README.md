@@ -1,13 +1,41 @@
 # job-search-dashboard
 
-A small, read-only Streamlit dashboard for checking a job-search pipeline's
-daily results at a glance. The pipeline itself lives in a separate private
-repository; this repo holds only the dashboard so it can deploy on Streamlit
-Community Cloud's free public-repo tier.
+A small, read-only Streamlit dashboard for a job-search pipeline. The
+pipeline itself lives in a separate private repository; this repo holds only
+the dashboard so it can deploy on Streamlit Community Cloud's free
+public-repo tier.
 
 **Everything here is a `SELECT`.** Nothing in this app writes to the database.
 
-## What it shows
+Two groups of tabs, for two different readers:
+
+## Stakeholder-facing tabs (Funnel, Opportunities by Source, Opportunities by
+Region, Rejection Reasons, Review Queue, Qualified Matches, Applications)
+
+Plain counts and tables, no dev/ops language, no run-status or connector
+detail — what the search has found, not how the pipeline is running.
+
+- **Funnel** — Ingested → Prefiltered → Qualified → Applications Submitted.
+  The latter two show "Coming soon" instead of a bare `0` until those stages
+  actually populate `qualified_opportunities.deep_review_score` /
+  `applications`, which nothing does yet.
+- **Opportunities by Source** — postings that cleared prefilter (not raw
+  ingested volume), by source, with clean display names (e.g. "RemoteOK",
+  not `remoteok`).
+- **Opportunities by Region** — same postings, grouped using the area-bucket
+  logic shipped 2026-08-10 in the pipeline repo's `dashboard/regions.py`
+  (copied here verbatim, not reimplemented — see `regions.py`).
+- **Rejection Reasons** — prefilter's fixed reason-code vocabulary, relabeled
+  into plain language (`role_not_in_taxonomy` → "Not a targeted role type",
+  etc. — see `queries.REASON_LABELS`).
+- **Review Queue** — company, title, source, and date found for postings
+  currently awaiting human review. No ids, no gate/verdict columns.
+- **Qualified Matches**, **Applications** — placeholders ("Coming soon")
+  until deep qualification scoring and application tracking are built.
+
+## Pipeline Status tab (technical / daily-check)
+
+The original single-page dashboard, unchanged, now living in its own tab:
 
 - **Last run, by stage** — the most recent `pipeline_runs` row per stage, with
   status and timestamp. A stage that has never been recorded gets an explicit
@@ -50,9 +78,10 @@ format.
 
 ## Expected schema
 
-The app reads four tables — `pipeline_runs`, `raw_postings`,
-`qualified_opportunities`, `sources`, and `companies`. All SQL is in
-`queries.py`; the column names it depends on are visible there.
+The app reads `pipeline_runs`, `raw_postings`, `qualified_opportunities`,
+`sources`, `companies`, and `applications` (Funnel tab only, currently always
+empty). All SQL is in `queries.py`; the column names it depends on are
+visible there.
 
 ## Scope
 

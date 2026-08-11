@@ -7,6 +7,18 @@ public-repo tier.
 
 **Everything here is a `SELECT`.** Nothing in this app writes to the database.
 
+## Theme
+
+Design tokens (light/dark colors), the Fraunces/Inter/IBM Plex Mono type
+system, and the CSS for the tab nav, cards, and plain tables all live in
+`theme.py` — one file, one `inject(dark: bool)` call per rerun. A dark-mode
+toggle in the header switches it live via `st.session_state`; light is the
+default on load. See `theme.py`'s own docstring for which CSS rules are
+solid (target Streamlit's `data-testid`/`data-baseweb` attributes) versus
+best-effort (a few spots — the toggle switch itself, `st.info` boxes — touch
+Streamlit/baseweb internals this session couldn't visually confirm without a
+browser).
+
 Two groups of tabs, for two different readers:
 
 ## Stakeholder-facing tabs (Funnel, Opportunities by Source, Opportunities by

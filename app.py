@@ -22,6 +22,7 @@ import streamlit as st
 from sqlalchemy import create_engine
 
 import regions
+import theme
 from queries import REASON_LABELS, SOURCE_DISPLAY_NAMES, STAGE_ORDER, STATEMENTS
 
 # Validated categorical pair for the only genuinely multi-series chart here
@@ -124,11 +125,23 @@ def queue_table(df, empty_message):
     )
 
 
-# --- header ------------------------------------------------------------
+# --- theme ---------------------------------------------------------------
 
-left, right = st.columns([4, 1])
+# Read BEFORE the toggle widget below is created: on the rerun a toggle click
+# triggers, session_state already holds the new value, so the CSS injected
+# here always matches what the toggle will show a few lines down — no lag,
+# no separate "apply" step. Defaults to light, per spec, on a session that
+# has never touched the toggle.
+dark_mode = st.session_state.get("dark_mode", False)
+theme.inject(dark_mode)
+
+# --- header ----------------------------------------------------------------
+
+left, mid, right = st.columns([4, 1, 1])
 with left:
     st.title("Opportunity Pipeline")
+with mid:
+    st.toggle("Dark mode", key="dark_mode")
 with right:
     if st.button("Refresh", width="stretch"):
         st.cache_data.clear()
@@ -177,17 +190,17 @@ with tab_funnel:
         # would read as "the search tried and found nothing", when the truer
         # statement is "this stage isn't running yet". Ingested/Prefiltered
         # always show the real number, including a real 0, since that is
-        # never true of them once the pipeline has run at all.
-        stages = pd.DataFrame({
-            "Stage": ["Ingested", "Prefiltered", "Qualified", "Applications Submitted"],
-            "Count": [
-                f"{ingested:,}",
-                f"{prefiltered:,}",
-                f"{qualified:,}" if qualified else "Coming soon",
-                f"{applications_submitted:,}" if applications_submitted else "Coming soon",
-            ],
-        })
-        st.dataframe(stages, hide_index=True, width="stretch")
+        # never true of them once the pipeline has run at all. The muted
+        # ("Coming soon") flag drives styling only — same card shape either
+        # way, see theme.render_funnel.
+        theme.render_funnel([
+            ("Ingested", f"{ingested:,}", False),
+            ("Prefiltered", f"{prefiltered:,}", False),
+            ("Qualified", f"{qualified:,}" if qualified else "Coming soon", not qualified),
+            ("Applications Submitted",
+             f"{applications_submitted:,}" if applications_submitted else "Coming soon",
+             not applications_submitted),
+        ])
 
 # =========================================================================
 # Opportunities by Source
@@ -200,11 +213,16 @@ with tab_source:
         st.info("No opportunities found yet.")
     else:
         # Already ranked descending in SQL.
-        view = pd.DataFrame({
-            "Source": by_source["source"].map(source_label),
-            "Opportunities Found": by_source["n"],
-        })
-        st.dataframe(view, hide_index=True, width="stretch")
+        theme.render_table(
+            [
+                {"source": source_label(row["source"]), "n": f"{row['n']:,}"}
+                for row in by_source.to_dict("records")
+            ],
+            columns=[
+                ("source", "Source", {}),
+                ("n", "Opportunities Found", {"mono": True, "accent": "signal"}),
+            ],
+        )
 
 # =========================================================================
 # Opportunities by Region
@@ -226,7 +244,16 @@ with tab_region:
                      .rename("Opportunities Found")
                      .reset_index()
         )
-        st.dataframe(ordered, hide_index=True, width="stretch")
+        theme.render_table(
+            [
+                {"region": row["Region"], "n": f"{row['Opportunities Found']:,}"}
+                for row in ordered.to_dict("records")
+            ],
+            columns=[
+                ("region", "Region", {}),
+                ("n", "Opportunities Found", {"mono": True, "accent": "signal"}),
+            ],
+        )
 
 # =========================================================================
 # Rejection Reasons
@@ -241,12 +268,19 @@ with tab_reasons:
         # Already ranked descending in SQL. Unrecognized codes fall back to
         # the raw code rather than disappearing, so a new reason added to
         # the pipeline's vocabulary is still visible here before its label
-        # is added to queries.REASON_LABELS.
-        view = pd.DataFrame({
-            "Reason": reasons["reason"].map(lambda r: REASON_LABELS.get(r, r)),
-            "Count": reasons["n"],
-        })
-        st.dataframe(view, hide_index=True, width="stretch")
+        # is added to queries.REASON_LABELS. Neutral ink, not signal/review —
+        # a rejection is neither "found" nor "pending", so it gets no accent.
+        theme.render_table(
+            [
+                {"reason": REASON_LABELS.get(row["reason"], row["reason"]),
+                 "n": f"{row['n']:,}"}
+                for row in reasons.to_dict("records")
+            ],
+            columns=[
+                ("reason", "Reason", {}),
+                ("n", "Count", {"mono": True}),
+            ],
+        )
 
 # =========================================================================
 # Review Queue
@@ -258,25 +292,29 @@ with tab_queue:
     if review_queue.empty:
         st.info("Nothing in the review queue right now.")
     else:
-        view = pd.DataFrame({
-            "Company": review_queue["company"],
-            "Title": review_queue["title"],
-            "Source": review_queue["source"].map(source_label),
-            "Date Found": review_queue["date_found"],
-            "View Posting": review_queue["url"],
-        })
-        st.dataframe(
-            view,
-            hide_index=True,
-            width="stretch",
-            column_config={
-                "Date Found": st.column_config.DatetimeColumn(format="YYYY-MM-DD"),
-                # Same clickable-link treatment as the Pipeline Status tab's
-                # queues (queue_table above) — raw URLs are long enough to
-                # blow out the column otherwise.
-                "View Posting": st.column_config.LinkColumn(
-                    "View Posting", display_text="open ↗"),
-            },
+        st.markdown(
+            f'<p class="jsd-count-note"><span class="jsd-count-badge">'
+            f'{len(review_queue):,}</span> awaiting review</p>',
+            unsafe_allow_html=True,
+        )
+        theme.render_table(
+            [
+                {
+                    "company": row["company"],
+                    "title": row["title"],
+                    "source": source_label(row["source"]),
+                    "date_found": pd.Timestamp(row["date_found"]).strftime("%Y-%m-%d"),
+                    "url": row["url"],
+                }
+                for row in review_queue.to_dict("records")
+            ],
+            columns=[
+                ("company", "Company", {}),
+                ("title", "Title", {}),
+                ("source", "Source", {}),
+                ("date_found", "Date Found", {"mono": True}),
+                ("url", "View Posting", {"link": True}),
+            ],
         )
 
 # =========================================================================

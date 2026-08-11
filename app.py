@@ -149,19 +149,19 @@ with right:
 
 (
     tab_funnel,
+    tab_queue,
     tab_source,
     tab_region,
     tab_reasons,
-    tab_queue,
     tab_qualified,
     tab_applications,
     tab_status,
 ) = st.tabs([
     "Funnel",
+    "Review Queue",
     "Opportunities by Source",
     "Opportunities by Region",
     "Rejection Reasons",
-    "Review Queue",
     "Qualified Matches",
     "Applications",
     "Pipeline Status",
@@ -201,6 +201,41 @@ with tab_funnel:
              f"{applications_submitted:,}" if applications_submitted else "Coming soon",
              not applications_submitted),
         ])
+
+# =========================================================================
+# Review Queue
+# =========================================================================
+with tab_queue:
+    st.subheader("Review queue")
+
+    review_queue = load("review_queue")
+    if review_queue.empty:
+        st.info("Nothing in the review queue right now.")
+    else:
+        st.markdown(
+            f'<p class="jsd-count-note"><span class="jsd-count-badge">'
+            f'{len(review_queue):,}</span> awaiting review</p>',
+            unsafe_allow_html=True,
+        )
+        theme.render_table(
+            [
+                {
+                    "company": row["company"],
+                    "title": row["title"],
+                    "source": source_label(row["source"]),
+                    "date_found": pd.Timestamp(row["date_found"]).strftime("%Y-%m-%d"),
+                    "url": row["url"],
+                }
+                for row in review_queue.to_dict("records")
+            ],
+            columns=[
+                ("company", "Company", {}),
+                ("title", "Title", {}),
+                ("source", "Source", {}),
+                ("date_found", "Date Found", {"mono": True}),
+                ("url", "View Posting", {"link": True}),
+            ],
+        )
 
 # =========================================================================
 # Opportunities by Source
@@ -279,41 +314,6 @@ with tab_reasons:
             columns=[
                 ("reason", "Reason", {}),
                 ("n", "Count", {"mono": True}),
-            ],
-        )
-
-# =========================================================================
-# Review Queue
-# =========================================================================
-with tab_queue:
-    st.subheader("Review queue")
-
-    review_queue = load("review_queue")
-    if review_queue.empty:
-        st.info("Nothing in the review queue right now.")
-    else:
-        st.markdown(
-            f'<p class="jsd-count-note"><span class="jsd-count-badge">'
-            f'{len(review_queue):,}</span> awaiting review</p>',
-            unsafe_allow_html=True,
-        )
-        theme.render_table(
-            [
-                {
-                    "company": row["company"],
-                    "title": row["title"],
-                    "source": source_label(row["source"]),
-                    "date_found": pd.Timestamp(row["date_found"]).strftime("%Y-%m-%d"),
-                    "url": row["url"],
-                }
-                for row in review_queue.to_dict("records")
-            ],
-            columns=[
-                ("company", "Company", {}),
-                ("title", "Title", {}),
-                ("source", "Source", {}),
-                ("date_found", "Date Found", {"mono": True}),
-                ("url", "View Posting", {"link": True}),
             ],
         )
 

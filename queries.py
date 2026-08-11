@@ -231,14 +231,17 @@ OPPORTUNITIES_BY_LOCATION_SQL = text("""
     GROUP BY r.location
 """)
 
-# Minimal columns only — company/title/source/date found. No posting id, no
-# gate/verdict internals, no salary or URL: this is the clean stakeholder
-# view, not the technical ambiguous queue FORWARD_QUEUE_SQL already covers.
+# Minimal columns only — company/title/source/date found, plus the posting's
+# own URL so a row can be opened directly (rendered as a link in app.py, same
+# as the technical tab's queues already do). No posting id, no gate/verdict
+# internals, no salary: this is the clean stakeholder view, not the technical
+# ambiguous queue FORWARD_QUEUE_SQL already covers.
 REVIEW_QUEUE_SQL = text("""
     SELECT COALESCE(c.name, r.company_name) AS company,
            r.title                          AS title,
            s.name                           AS source,
-           r.first_seen_at                  AS date_found
+           r.first_seen_at                  AS date_found,
+           r.url                            AS url
     FROM qualified_opportunities q
     JOIN raw_postings r   ON r.id = q.raw_posting_id
     JOIN sources s        ON s.id = r.source_id

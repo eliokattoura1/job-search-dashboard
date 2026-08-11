@@ -263,6 +263,7 @@ with tab_queue:
             "Title": review_queue["title"],
             "Source": review_queue["source"].map(source_label),
             "Date Found": review_queue["date_found"],
+            "View Posting": review_queue["url"],
         })
         st.dataframe(
             view,
@@ -270,6 +271,11 @@ with tab_queue:
             width="stretch",
             column_config={
                 "Date Found": st.column_config.DatetimeColumn(format="YYYY-MM-DD"),
+                # Same clickable-link treatment as the Pipeline Status tab's
+                # queues (queue_table above) — raw URLs are long enough to
+                # blow out the column otherwise.
+                "View Posting": st.column_config.LinkColumn(
+                    "View Posting", display_text="open ↗"),
             },
         )
 

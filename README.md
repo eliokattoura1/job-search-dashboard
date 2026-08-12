@@ -1,11 +1,13 @@
 # job-search-dashboard
 
-A small, read-only Streamlit dashboard for a job-search pipeline. The
-pipeline itself lives in a separate private repository; this repo holds only
-the dashboard so it can deploy on Streamlit Community Cloud's free
-public-repo tier.
+A small Streamlit dashboard for a job-search pipeline, with a lightweight
+human approve/reject step on the Review Queue tab. The pipeline itself lives
+in a separate private repository; this repo holds only the dashboard so it
+can deploy on Streamlit Community Cloud's free public-repo tier.
 
-**Everything here is a `SELECT`.** Nothing in this app writes to the database.
+All reads go through `queries.py`, which is `SELECT`-only. The only writes
+are the two `INSERT`s in `mutations.py`, behind the Review Queue tab's
+Approve/Reject buttons.
 
 ## Theme
 
@@ -41,7 +43,10 @@ detail — what the search has found, not how the pipeline is running.
   into plain language (`role_not_in_taxonomy` → "Not a targeted role type",
   etc. — see `queries.REASON_LABELS`).
 - **Review Queue** — company, title, source, and date found for postings
-  currently awaiting human review. No ids, no gate/verdict columns.
+  currently awaiting human review. Stale postings
+  (`raw_postings.is_stale`) are excluded outright. Below the table, a
+  select-then-act control (pick an opportunity, then Approve/Reject) records
+  the decision — see "Review workflow" below.
 - **Qualified Matches**, **Applications** — placeholders ("Coming soon")
   until deep qualification scoring and application tracking are built.
 
@@ -63,6 +68,34 @@ The original single-page dashboard, unchanged, now living in its own tab:
 - **New rows per day** — a 7-day trend. The day axis is generated in SQL, so a
   day with no ingest shows as an explicit `0` trough instead of disappearing
   from the chart.
+
+## Review workflow
+
+The Review Queue tab's table (`theme.render_table`) is deliberately plain
+HTML/CSS for typography control, which can't host live `st.button` widgets
+per row — so instead of buttons inline in the table, there's a
+select-then-act control underneath it: pick an opportunity from a dropdown,
+then click **Approve** or **Reject**.
+
+Either action inserts one row into `applications`
+(`qualified_opportunity_id`, `status`, `approved_by`, `approved_at`) — this
+only records the human decision. `cv_variant_used` and `cv_file_url` stay
+`NULL` until the tailoring engine (brief §10) exists and writes them.
+Rejections use `status = 'rejected_by_human'` (the actual
+`application_status_enum` value — not `'rejected'`); there's no
+rejection-reason field, since `applications` has no column for one.
+
+`approved_by` is the Streamlit-authenticated user's email if OIDC viewer
+auth is configured for this deployment (`st.user.email`), otherwise the
+static placeholder `"elio"` — this deployment currently has no auth
+configured, so every decision is attributed to that placeholder.
+
+Once a `qualified_opportunity_id` has an `applications` row, `review_queue`
+stops returning it, so it drops out of the dropdown and the table on the
+next refresh instead of reappearing as pending. The `UNIQUE` constraint on
+`applications.qualified_opportunity_id` (schema.sql:418) makes
+double-actioning a no-op — a repeat click surfaces a warning instead of
+failing.
 
 ## Setup
 
@@ -91,11 +124,13 @@ format.
 ## Expected schema
 
 The app reads `pipeline_runs`, `raw_postings`, `qualified_opportunities`,
-`sources`, `companies`, and `applications` (Funnel tab only, currently always
-empty). All SQL is in `queries.py`; the column names it depends on are
-visible there.
+`sources`, `companies`, and `applications`. All read SQL is in `queries.py`;
+the only writes are the two `INSERT`s in `mutations.py`, whose columns match
+`application_status_enum` / `response_status_enum` from the pipeline's
+`schema.sql`.
 
 ## Scope
 
-This is a daily-check tool, not a review/approval UI. There is deliberately no
-scoring, no document tailoring, and no application workflow.
+This is a daily-check tool with a lightweight human approve/reject step —
+not the full Phase 2 review UI. There is still no scoring and no document
+tailoring; this app never writes `cv_variant_used` or `cv_file_url`.

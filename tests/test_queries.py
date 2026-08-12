@@ -33,3 +33,18 @@ def test_review_queue_still_scoped_to_ambiguous_forwarded():
 
 def test_review_queue_is_registered_under_its_name():
     assert STATEMENTS["review_queue"] is REVIEW_QUEUE_SQL
+
+
+def test_review_queue_selects_qualified_opportunity_id():
+    # The Approve/Reject select-then-act UI keys off this — without it
+    # there is nothing to pass to mutations.record_decision.
+    sql = _sql(REVIEW_QUEUE_SQL)
+    assert "q.id" in sql and "qualified_opportunity_id" in sql
+
+
+def test_review_queue_excludes_already_actioned_rows():
+    sql = _sql(REVIEW_QUEUE_SQL)
+    assert re.search(r"not exists\s*\(\s*select 1 from applications", sql), (
+        "review_queue must exclude opportunities that already have an "
+        "applications row, or an actioned row would reappear as pending"
+    )

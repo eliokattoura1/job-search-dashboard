@@ -237,11 +237,12 @@ OPPORTUNITIES_BY_LOCATION_SQL = text("""
 # internals, no salary: this is the clean stakeholder view, not the technical
 # ambiguous queue FORWARD_QUEUE_SQL already covers.
 REVIEW_QUEUE_SQL = text("""
-    SELECT COALESCE(c.name, r.company_name) AS company,
-           r.title                          AS title,
-           s.name                           AS source,
-           r.first_seen_at                  AS date_found,
-           r.url                            AS url
+    SELECT q.id                              AS qualified_opportunity_id,
+           COALESCE(c.name, r.company_name)  AS company,
+           r.title                           AS title,
+           s.name                            AS source,
+           r.first_seen_at                   AS date_found,
+           r.url                             AS url
     FROM qualified_opportunities q
     JOIN raw_postings r   ON r.id = q.raw_posting_id
     JOIN sources s        ON s.id = r.source_id
@@ -252,6 +253,12 @@ REVIEW_QUEUE_SQL = text("""
       -- decision on something no longer applyable-to, so it's withheld here
       -- rather than shown alongside live rows.
       AND r.is_stale = false
+      -- Once a human has approved or rejected an opportunity, it has an
+      -- applications row (mutations.record_decision) and must stop
+      -- reappearing here as pending.
+      AND NOT EXISTS (
+          SELECT 1 FROM applications a WHERE a.qualified_opportunity_id = q.id
+      )
     ORDER BY r.first_seen_at DESC
 """)
 

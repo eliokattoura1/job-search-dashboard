@@ -7,13 +7,15 @@ Deployed:      Streamlit Community Cloud, main file path = app.py
 Two audiences, two groups of tabs:
   * The first 7 tabs (Funnel through Applications) are stakeholder-facing —
     what the search has found, in plain language. No run status, no error
-    detail, no connector/gate internals.
+    detail, no connector/gate internals. Review Queue is the one exception
+    to "no workflow": it has an Approve/Reject step (see mutations.py).
   * "Pipeline Status" (last) is the original daily-check tool: did last
     night's run work, and what is in the technical queue. Unchanged from
     before the stakeholder tabs were added.
 
-SCOPE: no scoring, no tailoring, no application workflow. Everything here is
-a SELECT.
+SCOPE: no scoring, no tailoring. All reads go through queries.py
+(SELECT-only); the only writes are the two INSERTs in mutations.py, behind
+the Review Queue tab's Approve/Reject buttons.
 """
 import os
 
@@ -21,6 +23,7 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine
 
+import mutations
 import regions
 import theme
 from queries import REASON_LABELS, SOURCE_DISPLAY_NAMES, STAGE_ORDER, STATEMENTS
@@ -89,6 +92,18 @@ def source_label(name):
     if name is None:
         return "Unknown"
     return SOURCE_DISPLAY_NAMES.get(name, str(name).title())
+
+
+def handle_decision(qualified_opportunity_id, status, verb):
+    """Record one approve/reject click and refresh the queue."""
+    actor = mutations.get_actor(st)
+    recorded = mutations.record_decision(get_engine(), qualified_opportunity_id, status, actor)
+    st.cache_data.clear()
+    if recorded:
+        st.toast(f"Marked {verb} by {actor}.")
+    else:
+        st.warning("Already actioned by someone else — refreshing.")
+    st.rerun()
 
 
 def queue_table(df, empty_message):
@@ -248,6 +263,25 @@ with tab_queue:
                 ("url", "View Posting", {"link": True}),
             ],
         )
+
+        # Select-then-act rather than a button per row: theme.render_table is
+        # plain HTML (see its docstring — deliberate, for the custom
+        # typography), and an HTML <button> inside unsafe_allow_html markup
+        # can't trigger a Streamlit callback. This keeps the styled table
+        # untouched and adds one real Streamlit widget below it instead.
+        st.markdown("##### Record a decision")
+        by_id = {row["qualified_opportunity_id"]: row for row in review_queue.to_dict("records")}
+        selected_id = st.selectbox(
+            "Opportunity",
+            options=list(by_id.keys()),
+            format_func=lambda qid: f'{by_id[qid]["company"]} — {by_id[qid]["title"]}',
+            key="review_queue_selected_id",
+        )
+        b1, b2 = st.columns(2)
+        if b1.button("Approve", width="stretch", key="review_queue_approve"):
+            handle_decision(selected_id, mutations.STATUS_APPROVED, "approved")
+        if b2.button("Reject", width="stretch", key="review_queue_reject"):
+            handle_decision(selected_id, mutations.STATUS_REJECTED, "rejected")
 
 # =========================================================================
 # Opportunities by Source

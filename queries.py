@@ -247,6 +247,11 @@ REVIEW_QUEUE_SQL = text("""
     JOIN sources s        ON s.id = r.source_id
     LEFT JOIN companies c ON c.id = r.company_id
     WHERE q.first_pass_result = 'ambiguous_forwarded'
+      -- A posting the source stopped returning is a closed/pulled listing in
+      -- all but name. Asking a human to review (or approve) it wastes a
+      -- decision on something no longer applyable-to, so it's withheld here
+      -- rather than shown alongside live rows.
+      AND r.is_stale = false
     ORDER BY r.first_seen_at DESC
 """)
 

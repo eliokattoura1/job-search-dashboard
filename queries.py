@@ -231,13 +231,30 @@ OPPORTUNITIES_BY_LOCATION_SQL = text("""
     GROUP BY r.location
 """)
 
-# Minimal columns only — company/title/source/date found, plus the posting's
-# own URL so a row can be opened directly (rendered as a link in app.py, same
-# as the technical tab's queues already do). No posting id, no gate/verdict
-# internals, no salary: this is the clean stakeholder view, not the technical
-# ambiguous queue FORWARD_QUEUE_SQL already covers.
+# Minimal columns, plus the two verdict fields needed to badge each row --
+# first_pass_result and location_check_deferred_to_llm (set by
+# scripts/promote_ambiguous.py; see below). No gate/verdict *reasons*, no
+# salary: this is still the clean stakeholder view, not the technical queue
+# FORWARD_QUEUE_SQL already covers -- it just now also surfaces which of the
+# two forwarding verdicts produced each row, since 'pass' and
+# 'ambiguous_forwarded' used to render identically and were not
+# distinguishable in the UI.
+#
+# WHERE now covers BOTH forwarding verdicts, not just 'ambiguous_forwarded':
+# 'pass' rows still need a human approve/reject decision same as ambiguous
+# ones (mutations.record_decision doesn't discriminate), so excluding them
+# here just meant they never got a decision recorded. Same "opportunities"
+# definition as OPPORTUNITIES_BY_SOURCE_SQL / OPPORTUNITIES_BY_LOCATION_SQL
+# above.
+#
+# ORDER BY puts 'pass' rows first (higher confidence -- every hard gate
+# cleared, vs. ambiguous_forwarded where at least one gate was undetermined),
+# then most-recently-found within each group. `= 'pass'` evaluates to a
+# boolean, and DESC sorts TRUE before FALSE, so this needs no CASE.
 REVIEW_QUEUE_SQL = text("""
     SELECT q.id                              AS qualified_opportunity_id,
+           q.first_pass_result                AS first_pass_result,
+           q.location_check_deferred_to_llm   AS location_check_deferred_to_llm,
            COALESCE(c.name, r.company_name)  AS company,
            r.title                           AS title,
            s.name                            AS source,
@@ -247,7 +264,7 @@ REVIEW_QUEUE_SQL = text("""
     JOIN raw_postings r   ON r.id = q.raw_posting_id
     JOIN sources s        ON s.id = r.source_id
     LEFT JOIN companies c ON c.id = r.company_id
-    WHERE q.first_pass_result = 'ambiguous_forwarded'
+    WHERE q.first_pass_result IN ('pass', 'ambiguous_forwarded')
       -- A posting the source stopped returning is a closed/pulled listing in
       -- all but name. Asking a human to review (or approve) it wastes a
       -- decision on something no longer applyable-to, so it's withheld here
@@ -259,7 +276,7 @@ REVIEW_QUEUE_SQL = text("""
       AND NOT EXISTS (
           SELECT 1 FROM applications a WHERE a.qualified_opportunity_id = q.id
       )
-    ORDER BY r.first_seen_at DESC
+    ORDER BY (q.first_pass_result = 'pass') DESC, r.first_seen_at DESC
 """)
 
 

@@ -244,9 +244,31 @@ with tab_queue:
             f'{len(review_queue):,}</span> awaiting review</p>',
             unsafe_allow_html=True,
         )
+
+        def status_badge(row):
+            """(label, accent) for one row's Status cell.
+
+            'pass' and 'ambiguous_forwarded' used to render identically here
+            — this is the fix. A 'pass' row promoted by
+            scripts/promote_ambiguous.py carries location_check_deferred_to_llm
+            = true because that script never re-checks the location field (see
+            its module docstring); it's labeled distinctly so a reviewer
+            doesn't mistake it for a pass whose location eligibility the
+            prefilter itself already confirmed. Accent-wise, only an
+            organically-cleared 'pass' gets "signal" (fully resolved);
+            auto-promoted passes and ambiguous rows both still carry an
+            unresolved check, so both get "review".
+            """
+            if row["first_pass_result"] == "pass":
+                if row["location_check_deferred_to_llm"]:
+                    return ("Pass (auto-promoted)", "review")
+                return ("Pass", "signal")
+            return ("Ambiguous", "review")
+
         theme.render_table(
             [
                 {
+                    "status": status_badge(row),
                     "company": row["company"],
                     "title": row["title"],
                     "source": source_label(row["source"]),
@@ -256,6 +278,7 @@ with tab_queue:
                 for row in review_queue.to_dict("records")
             ],
             columns=[
+                ("status", "Status", {}),
                 ("company", "Company", {}),
                 ("title", "Title", {}),
                 ("source", "Source", {}),

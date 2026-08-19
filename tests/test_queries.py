@@ -24,11 +24,26 @@ def test_review_queue_excludes_stale_postings():
     )
 
 
-def test_review_queue_still_scoped_to_ambiguous_forwarded():
-    # The stale filter is additive — it must not accidentally widen the
-    # existing first_pass_result scope.
+def test_review_queue_scoped_to_pass_and_ambiguous_forwarded():
+    # Both forwarding verdicts belong here — 'pass' rows need an
+    # approve/reject decision same as 'ambiguous_forwarded' ones, and the
+    # Status column (app.py) is what makes the two distinguishable now that
+    # both appear.
     sql = _sql(REVIEW_QUEUE_SQL)
-    assert "first_pass_result = 'ambiguous_forwarded'" in sql
+    assert "first_pass_result in ('pass', 'ambiguous_forwarded')" in sql
+
+
+def test_review_queue_selects_verdict_fields_for_status_badge():
+    # app.py's status_badge() reads both of these off each row; without them
+    # 'pass' and 'ambiguous_forwarded' would render identically again.
+    sql = _sql(REVIEW_QUEUE_SQL)
+    assert "q.first_pass_result" in sql
+    assert "q.location_check_deferred_to_llm" in sql
+
+
+def test_review_queue_orders_pass_before_ambiguous_forwarded():
+    sql = _sql(REVIEW_QUEUE_SQL)
+    assert "order by (q.first_pass_result = 'pass') desc, r.first_seen_at desc" in sql
 
 
 def test_review_queue_is_registered_under_its_name():

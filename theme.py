@@ -333,7 +333,15 @@ html, body {{
 
 
 def _cell(value, *, mono=False, accent=None, link=False):
-    """One <td> for render_table. `value` is escaped here — see module note."""
+    """One <td> for render_table. `value` is escaped here — see module note.
+
+    `value` may be a (text, accent) tuple to override the column's `accent`
+    for this one row — e.g. the Review Queue's Status column, where the
+    color depends on each row's own verdict, not a fixed per-column choice.
+    """
+    if isinstance(value, tuple):
+        value, accent = value
+
     classes = []
     if mono:
         classes.append("jsd-table-num")

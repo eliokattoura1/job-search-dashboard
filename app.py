@@ -70,8 +70,20 @@ def get_engine():
     return create_engine(url, pool_pre_ping=True, future=True)
 
 
-@st.cache_data(ttl=TTL)
 def load(name, **params):
+    """
+    Run the named statement and return a DataFrame.
+
+    Thin wrapper: every call site keeps calling `load("review_queue")` etc.
+    unchanged. Delegates to _load_cached, which folds the statement's own
+    compiled SQL text into the cache key alongside `name` — see that
+    function's docstring for why.
+    """
+    return _load_cached(name, str(STATEMENTS[name]), **params)
+
+
+@st.cache_data(ttl=TTL)
+def _load_cached(name, query_sql, **params):
     """
     Run the named statement and return a DataFrame.
 
@@ -80,6 +92,18 @@ def load(name, **params):
     Streamlit to skip hashing it (unhashable), collapsing every no-parameter
     call onto one shared cache entry. `params` is hashed normally, so two
     different :days values cache separately.
+
+    `query_sql` (the same statement's compiled SQL, as a plain — and so
+    trivially hashable — string) is unused inside the function; it exists
+    only to be part of the cache key. Without it, editing a query's SQL
+    (queries.py) while this process stays alive — e.g. Streamlit's
+    dev-mode rerun-on-file-save, which reruns the script but does not clear
+    an already-cached DataFrame keyed on `name` + `params` — keeps serving
+    the OLD result shape under that same key until TTL expires. That is
+    exactly how a query gaining a new column (review_queue picking up
+    first_pass_result) produced a live KeyError downstream instead of the
+    column just being there: the code changed, but a stale cache entry
+    computed under the old SQL was still being handed back.
     """
     with get_engine().connect() as conn:
         result = conn.execute(STATEMENTS[name], params)
@@ -92,6 +116,37 @@ def source_label(name):
     if name is None:
         return "Unknown"
     return SOURCE_DISPLAY_NAMES.get(name, str(name).title())
+
+
+def status_badge(row):
+    """(label, accent) for one Review Queue row's Status cell.
+
+    Reads with .get(), not row[...]: `row` is a plain dict (from
+    DataFrame.to_dict("records")), and a KeyError here previously took down
+    the whole app — including tabs rendered before Review Queue in script
+    order — whenever the cached review_queue DataFrame's columns didn't
+    match what this function expected (see _load_cached's docstring for how
+    that happens). A missing/unrecognized first_pass_result now degrades to
+    an "Unknown" badge instead of crashing.
+
+    'pass' and 'ambiguous_forwarded' used to render identically here — this
+    function is the fix. A 'pass' row promoted by
+    scripts/promote_ambiguous.py carries location_check_deferred_to_llm =
+    true because that script never re-checks the location field (see its
+    module docstring); it's labeled distinctly so a reviewer doesn't mistake
+    it for a pass whose location eligibility the prefilter itself already
+    confirmed. Accent-wise, only an organically-cleared 'pass' gets "signal"
+    (fully resolved); auto-promoted passes and ambiguous rows both still
+    carry an unresolved check, so both get "review".
+    """
+    result = row.get("first_pass_result")
+    if result == "pass":
+        if row.get("location_check_deferred_to_llm"):
+            return ("Pass (auto-promoted)", "review")
+        return ("Pass", "signal")
+    if result == "ambiguous_forwarded":
+        return ("Ambiguous", "review")
+    return ("Unknown", None)
 
 
 def handle_decision(qualified_opportunity_id, status, verb):
@@ -244,26 +299,6 @@ with tab_queue:
             f'{len(review_queue):,}</span> awaiting review</p>',
             unsafe_allow_html=True,
         )
-
-        def status_badge(row):
-            """(label, accent) for one row's Status cell.
-
-            'pass' and 'ambiguous_forwarded' used to render identically here
-            — this is the fix. A 'pass' row promoted by
-            scripts/promote_ambiguous.py carries location_check_deferred_to_llm
-            = true because that script never re-checks the location field (see
-            its module docstring); it's labeled distinctly so a reviewer
-            doesn't mistake it for a pass whose location eligibility the
-            prefilter itself already confirmed. Accent-wise, only an
-            organically-cleared 'pass' gets "signal" (fully resolved);
-            auto-promoted passes and ambiguous rows both still carry an
-            unresolved check, so both get "review".
-            """
-            if row["first_pass_result"] == "pass":
-                if row["location_check_deferred_to_llm"]:
-                    return ("Pass (auto-promoted)", "review")
-                return ("Pass", "signal")
-            return ("Ambiguous", "review")
 
         theme.render_table(
             [
